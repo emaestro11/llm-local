@@ -57,6 +57,19 @@ Exchange integration via `ccxt` (Binance testnet for paper trading, live later).
 - `sqlalchemy` — database ORM for trade storage
 - `huggingface-hub` / `hf-transfer` — model downloads
 
+## Design Doc
+
+The approved design document lives at:
+`~/.gstack/projects/emaestro11-llm-local/esteban-main-design-20260412-200049.md`
+
+**Approach:** C then B — validate LLM signal quality first (decision harness + historical replay), then build on Freqtrade infrastructure.
+
+**Phases:**
+1. **Decision Harness (Weekend)** — `decision_harness.py`, `data_fetcher.py`, `replay_engine.py`, `analysis.py`. Replay 30 days of BTC/USDT through Gemma4-26B, measure signal quality.
+2. **Freqtrade Integration (Week 1)** — Pre-computed signal file approach (LLM runs separately, writes signals to disk, Freqtrade reads them).
+3. **Meta-Loop + Claude Opus (Weeks 2-3)** — Self-monitoring performance degradation, automatic strategy adjustment with rollback.
+4. **Live Trading (Week 4+)** — $50-100 real capital, hard-coded risk rules (25% max position, 5% daily drawdown, 15% total drawdown).
+
 ## Skill routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
