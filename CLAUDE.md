@@ -9,10 +9,15 @@ Local ML-based crypto trading system. Uses local LLMs (Gemma4-26B, Qwen3.5) via 
 ## Development Commands
 
 ```bash
-uv run main.py          # Run the application
-uv add <package>        # Add a dependency
-uv sync                 # Install/sync all dependencies
-uv run python -m pytest # Run tests (once pytest is added)
+uv run python -m llm_local fetch                  # Fetch & cache 30 days of BTC/USDT candles + compute indicators
+uv run python -m llm_local replay --quick          # Quick replay (200 candles, ~30 min)
+uv run python -m llm_local replay                  # Full replay (2,880 candles, ~8-12 hours)
+uv run python -m llm_local replay --prompt-version v1  # Specify prompt version
+uv run python -m llm_local analyze                 # Analyze latest completed run
+uv run python -m llm_local analyze --compare       # Compare all runs side by side
+uv run python -m pytest tests/ -v                  # Run tests (92 tests)
+uv add <package>                                   # Add a dependency
+uv sync                                            # Install/sync all dependencies
 ```
 
 ## Local LLM Setup
@@ -36,9 +41,33 @@ Two-tier model approach:
 - **Local LLM (Gemma4/Qwen)** — fast, free, handles trade execution decisions, market monitoring, and routine analysis
 - **Claude Opus (API)** — deep reasoning for strategy research, performance review, and architecture planning
 
+### Phase 1 Module Structure (current)
+
+```
+llm_local/
+├── __init__.py        # Package init
+├── __main__.py        # CLI entry point (fetch/replay/analyze)
+├── config.py          # TOML config loading + Config dataclass
+├── models.py          # SQLAlchemy models: Candle, Decision, ReplayRun
+├── data.py            # Binance OHLCV fetch (cached) + pandas-ta indicators
+├── prompts.py         # Named prompt templates (v1+) with version tracking
+├── harness.py         # make_decision() pure function, grammar-constrained JSON via llama.cpp
+├── replay.py          # Historical replay loop, position tracking, checkpoint/resume
+└── analysis.py        # Win rate, Sharpe, drawdown, confidence calibration
+tests/                 # 92 tests covering all modules
+config.toml            # Trading configuration (pair, timeframe, LLM params, fees)
+```
+
+Key design decisions:
+- **Grammar-constrained JSON** via `extra_body={"json_schema": ...}` on llama.cpp's OpenAI-compatible API
+- **Pure function harness** — no side effects, caller validates action legality
+- **15-minute candles**, 24-candle lookback, 24-candle max hold cap
+- **Checkpoint/resume** for multi-hour replays, progress bar every 100 candles
+- **Quick mode** (--quick) for 200-candle prompt iteration runs
+
 Storage layers:
 
-- **SQLite** — structured trade data (orders, P&L, strategy configs)
+- **SQLite** — candles (cached), decisions, replay_runs. Outcomes computed at analysis time.
 - **MemPalace** — persistent conversational memory and context across sessions (ChromaDB + knowledge graph)
 
 Exchange integration via `ccxt` (Binance testnet for paper trading, live later).
@@ -50,25 +79,37 @@ Exchange integration via `ccxt` (Binance testnet for paper trading, live later).
 
 ## Key Dependencies
 
-- `ccxt` — exchange API (Binance)
-- `openai` — client for local llama-server
-- `anthropic` — Claude Opus API
-- `mempalace` — local AI memory system (ChromaDB + SQLite knowledge graph)
-- `sqlalchemy` — database ORM for trade storage
+- `ccxt` — exchange API (Binance OHLCV data)
+- `openai` — client for local llama-server (grammar-constrained JSON)
+- `pandas-ta` — technical indicators (RSI, MACD, Bollinger Bands, SMA)
+- `pandas` — data manipulation (required by pandas-ta)
+- `sqlalchemy` — database ORM for SQLite storage
+- `anthropic` — Claude Opus API (Phase 3+)
+- `mempalace` — local AI memory system (Phase 3+)
 - `huggingface-hub` / `hf-transfer` — model downloads
+- `pytest` — test framework (dev dependency)
 
-## Design Doc
+## Documentation
 
-The approved design document lives at:
-`~/.gstack/projects/emaestro11-llm-local/esteban-main-design-20260412-200049.md`
+- `docs/design.md` — Approved design doc from /office-hours (problem statement, premises, approach, all 4 phases)
+- `docs/architecture-decisions.md` — 12 architecture decisions from /plan-eng-review with rationale, outside voice findings, operational learnings, and next steps
 
 **Approach:** C then B — validate LLM signal quality first (decision harness + historical replay), then build on Freqtrade infrastructure.
 
 **Phases:**
-1. **Decision Harness (Weekend)** — `decision_harness.py`, `data_fetcher.py`, `replay_engine.py`, `analysis.py`. Replay 30 days of BTC/USDT through Gemma4-26B, measure signal quality.
+1. **Decision Harness (BUILT)** — `llm_local/` package: harness, data fetcher, replay engine, analysis. Replay 30 days of BTC/USDT 15m candles through Gemma4-26B with full TA indicators, measure signal quality. 92 tests.
 2. **Freqtrade Integration (Week 1)** — Pre-computed signal file approach (LLM runs separately, writes signals to disk, Freqtrade reads them).
 3. **Meta-Loop + Claude Opus (Weeks 2-3)** — Self-monitoring performance degradation, automatic strategy adjustment with rollback.
 4. **Live Trading (Week 4+)** — $50-100 real capital, hard-coded risk rules (25% max position, 5% daily drawdown, 15% total drawdown).
+
+## Next Steps
+
+1. Start llama.cpp server with Gemma4-26B, run `fetch` then `replay --quick` for first real results
+2. If signal exists (win rate > 52%, confidence r > 0.1): iterate prompts, then `/plan-eng-review` on Phase 2
+3. If signal is noise: `/investigate` prompt quality, try different models or approaches
+4. Phase 2: Freqtrade integration via pre-computed signal files
+5. Phase 3: Meta-loop with Claude Opus for self-monitoring strategy adjustment
+6. Phase 4: Live trading with $50-100 real capital
 
 ## Skill routing
 

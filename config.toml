@@ -1,0 +1,21 @@
+[llm]
+url = "http://localhost:8080/v1"
+model = "gemma-4-26b"
+temperature = 0.3
+max_tokens = 512
+timeout_seconds = 30
+
+[trading]
+symbol = "BTC/USDT"
+timeframe = "15m"
+lookback_candles = 24
+max_hold_candles = 24
+fee_rate = 0.001
+starting_capital = 10000.0
+
+[data]
+days = 30
+quick_candles = 200
+
+[database]
+path = "trading.db"
