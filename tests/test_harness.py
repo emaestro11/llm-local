@@ -128,6 +128,63 @@ class TestMakeDecision:
         assert "reasoning" in props
         assert set(props["action"]["enum"]) == {"buy", "sell", "hold"}
 
+    def test_disables_thinking_via_chat_template_kwargs(self, mock_llm_response):
+        """Harness must pass enable_thinking=False so Gemma4's CoT doesn't eat tokens.
+
+        Regression: without this, v2 prompt produced 30%+ empty-content fallbacks
+        because reasoning consumed all 2048 max_tokens before JSON emitted.
+        """
+        config = Config(timeout_seconds=5)
+
+        with patch("llm_local.harness.OpenAI") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+            mock_client.chat.completions.create.return_value = mock_llm_response()
+
+            make_decision([_make_candle()], None, config)
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        extra = call_kwargs["extra_body"]
+        assert "chat_template_kwargs" in extra
+        assert extra["chat_template_kwargs"]["enable_thinking"] is False
+        # Ensure json_schema is still there alongside the new kwarg
+        assert "json_schema" in extra
+
+    def test_empty_content_returns_fallback(self):
+        """Empty content (reasoning model ate the token budget) yields a distinct fallback."""
+        config = Config(timeout_seconds=5)
+
+        with patch("llm_local.harness.OpenAI") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = ""
+            mock_client.chat.completions.create.return_value = mock_response
+
+            decision = make_decision([_make_candle()], None, config)
+
+        assert decision.is_fallback
+        assert decision.action == "hold"
+        assert "EMPTY_RESPONSE" in decision.reasoning
+
+    def test_none_content_returns_fallback(self):
+        """None content (some llama.cpp responses) yields a fallback without crashing."""
+        config = Config(timeout_seconds=5)
+
+        with patch("llm_local.harness.OpenAI") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = None
+            mock_client.chat.completions.create.return_value = mock_response
+
+            decision = make_decision([_make_candle()], None, config)
+
+        assert decision.is_fallback
+        assert "EMPTY_RESPONSE" in decision.reasoning
+
     def test_passes_position_to_prompt(self, mock_llm_response):
         """Position context is passed through to prompt building."""
         config = Config(timeout_seconds=5)

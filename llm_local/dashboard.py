@@ -22,7 +22,7 @@ HTML = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>LLM LOCAL // PHASE 1 DASHBOARD</title>
+<title>LLM Local Trader</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -117,7 +117,7 @@ HTML = r"""<!doctype html>
 
 <div class="banner">
   <div>
-    <h1>&gt; LLM_LOCAL.EXE</h1>
+    <h1>&gt; LLM LOCAL TRADER</h1>
     <div style="color:var(--dim);margin-top:6px;letter-spacing:2px">PHASE 1 // DECISION HARNESS // GEMMA4-26B</div>
   </div>
   <div class="invaders"><span class="invader">&#x1F47E;</span><span class="invader">&#x1F47E;</span><span class="invader">&#x1F47E;</span></div>

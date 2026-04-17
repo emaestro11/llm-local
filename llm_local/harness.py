@@ -104,13 +104,27 @@ def make_decision(
             ],
             temperature=config.temperature,
             max_tokens=config.max_tokens,
-            extra_body={"json_schema": DECISION_JSON_SCHEMA},
+            extra_body={
+                "json_schema": DECISION_JSON_SCHEMA,
+                # Gemma4 is a reasoning model — without this, chain-of-thought
+                # eats the token budget and content comes back empty. Disabling
+                # thinking sends all tokens to JSON output. ~3x faster too.
+                "chat_template_kwargs": {"enable_thinking": False},
+            },
         )
 
         elapsed_ms = int((time.monotonic() - start_time) * 1000)
-        raw_text = response.choices[0].message.content.strip()
+        raw_text = (response.choices[0].message.content or "").strip()
 
         logger.debug(f"LLM response ({elapsed_ms}ms): {raw_text}")
+
+        if not raw_text:
+            return _fallback_decision(
+                "EMPTY_RESPONSE: model returned no content "
+                "(check chat_template_kwargs.enable_thinking)",
+                elapsed_ms,
+                "",
+            )
 
         parsed = json.loads(raw_text)
         decision = TradeDecision(
