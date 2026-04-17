@@ -116,18 +116,17 @@ def _cmd_analyze(config, engine, args):
     if args.compare:
         # Compare all completed runs
         with get_session(engine) as session:
-            runs = session.execute(
-                select(ReplayRun)
+            run_ids = session.execute(
+                select(ReplayRun.id)
                 .where(ReplayRun.status == "completed")
                 .order_by(ReplayRun.id)
             ).scalars().all()
 
-        if not runs:
+        if not run_ids:
             print("No completed replay runs found.")
             return
 
-        run_ids = [r.id for r in runs]
-        print(compare_runs(run_ids, config, engine))
+        print(compare_runs(list(run_ids), config, engine))
         return
 
     # Single run analysis
@@ -135,17 +134,15 @@ def _cmd_analyze(config, engine, args):
     if run_id is None:
         # Find latest completed run
         with get_session(engine) as session:
-            latest = session.execute(
-                select(ReplayRun)
+            run_id = session.execute(
+                select(ReplayRun.id)
                 .where(ReplayRun.status == "completed")
                 .order_by(ReplayRun.id.desc())
-            ).scalar_one_or_none()
+            ).scalars().first()
 
-        if latest is None:
+        if run_id is None:
             print("No completed replay runs found. Run 'replay' first.")
             return
-
-        run_id = latest.id
 
     report = analyze_run(run_id, config, engine)
     print(format_report(report))
