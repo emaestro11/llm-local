@@ -2,8 +2,8 @@
 url = "http://localhost:8080/v1"
 model = "gemma-4-26b"
 temperature = 0.3
-max_tokens = 512
-timeout_seconds = 30
+max_tokens = 2048
+timeout_seconds = 60
 
 [trading]
 symbol = "BTC/USDT"

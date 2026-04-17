@@ -93,6 +93,15 @@ Exchange integration via `ccxt` (Binance testnet for paper trading, live later).
 
 - `docs/design.md` — Approved design doc from /office-hours (problem statement, premises, approach, all 4 phases)
 - `docs/architecture-decisions.md` — 12 architecture decisions from /plan-eng-review with rationale, outside voice findings, operational learnings, and next steps
+- `docs/phase-1-findings.md` — **Run #2 investigation (2026-04-16):** v1 prompt produces noise (win rate 18.2%, Pearson r −0.067). Root cause: overtrading, panic-sells. Contains proposed v2 prompt changes. **Read before iterating the prompt.**
+
+## Current Status (2026-04-16)
+
+- Phase 1 infrastructure: BUILT, tested, runs end-to-end
+- First quick replay: COMPLETE (run_id=2, 200 candles, 5 fallbacks / 200 = 2.5%)
+- Signal quality: **FAIL** — 18.2% win rate, confidence anti-correlated with outcome
+- Dashboard: `uv run python -m llm_local.dashboard` → http://localhost:8090
+- Next session pick-up: write v2 prompt per `docs/phase-1-findings.md`, re-run quick, compare
 
 **Approach:** C then B — validate LLM signal quality first (decision harness + historical replay), then build on Freqtrade infrastructure.
 
@@ -104,12 +113,17 @@ Exchange integration via `ccxt` (Binance testnet for paper trading, live later).
 
 ## Next Steps
 
-1. Start llama.cpp server with Gemma4-26B, run `fetch` then `replay --quick` for first real results
-2. If signal exists (win rate > 52%, confidence r > 0.1): iterate prompts, then `/plan-eng-review` on Phase 2
-3. If signal is noise: `/investigate` prompt quality, try different models or approaches
-4. Phase 2: Freqtrade integration via pre-computed signal files
-5. Phase 3: Meta-loop with Claude Opus for self-monitoring strategy adjustment
-6. Phase 4: Live trading with $50-100 real capital
+**Immediate (prompt iteration):**
+1. Implement `_build_v2()` in `llm_local/prompts.py` per `docs/phase-1-findings.md` §Proposed v2 Prompt Changes (fee injection, asymmetric bars, anti-panic, confidence calibration, default-hold bias). Add `"v2"` to `AVAILABLE_VERSIONS`.
+2. Add unit test in `tests/test_prompts.py` for v2 builder.
+3. Start llama.cpp server, then: `uv run python -m llm_local replay --quick --prompt-version v2` (~45 min).
+4. `uv run python -m llm_local analyze --compare` — check if win rate >40% and Pearson r >0.1.
+5. If v2 fails: `/office-hours` to reconsider (longer timeframe? different model? classification framing?).
+
+**After signal validated:**
+6. Phase 2: Freqtrade integration via pre-computed signal files
+7. Phase 3: Meta-loop with Claude Opus for self-monitoring strategy adjustment
+8. Phase 4: Live trading with $50-100 real capital
 
 ## Skill routing
 
