@@ -93,37 +93,39 @@ Exchange integration via `ccxt` (Binance testnet for paper trading, live later).
 
 - `docs/design.md` — Approved design doc from /office-hours (problem statement, premises, approach, all 4 phases)
 - `docs/architecture-decisions.md` — 12 architecture decisions from /plan-eng-review with rationale, outside voice findings, operational learnings, and next steps
-- `docs/phase-1-findings.md` — **Run #2 investigation (2026-04-16):** v1 prompt produces noise (win rate 18.2%, Pearson r −0.067). Root cause: overtrading, panic-sells. Contains proposed v2 prompt changes. **Read before iterating the prompt.**
+- `docs/phase-1-findings.md` — **Run #2 investigation (2026-04-16):** v1 prompt produces noise (win rate 18.2%, Pearson r −0.067). Root cause: overtrading, panic-sells. Contains proposed v2 prompt changes.
+- `docs/phase-1-v2-results.md` — **Run #4 v2 replay (2026-04-17):** v2 disciplined but edgeless on 50h choppy window. 0 fallbacks (vs 5), calibrated hold conf 0.22, rule-following exits. Verdict: prompt mechanism works, strategy-market fit is the remaining problem. Contains 4 paths forward (A/B/C/D). **Read before picking next direction.**
 
-## Current Status (2026-04-16)
+## Current Status (2026-04-17)
 
-- Phase 1 infrastructure: BUILT, tested, runs end-to-end
-- First quick replay: COMPLETE (run_id=2, 200 candles, 5 fallbacks / 200 = 2.5%)
-- Signal quality: **FAIL** — 18.2% win rate, confidence anti-correlated with outcome
-- Dashboard: `uv run python -m llm_local.dashboard` → http://localhost:8090
-- Next session pick-up: write v2 prompt per `docs/phase-1-findings.md`, re-run quick, compare
+- Phase 1 infrastructure: BUILT, tested, runs end-to-end (103 tests)
+- Run #2 (v1, 200 candles): **FAIL** — 18.2% WR, Pearson r −0.067, 5 fallbacks
+- Run #4 (v2, 200 candles): **DISCIPLINED BUT EDGELESS** — 20.0% WR, −1.52% total, 0 fallbacks, avg hold conf 0.22 (calibrated). Strategy-regime mismatch on choppy window (15 SMA96 crosses, 0.215% per-candle vol).
+- Infra fix: `chat_template_kwargs.enable_thinking=False` in harness killed Gemma4 reasoning-eats-tokens fallbacks. Replay 13x faster (~12 min for 200 candles).
+- Dashboard: `uv run python -m llm_local.dashboard` → http://localhost:8090 (title: "LLM Local Trader")
+- Next session pick-up: **pick a path from `docs/phase-1-v2-results.md`** (A: trending slice test; B: v3 regime-adaptive; C: full 2,880-candle replay; D: /office-hours). Recommended A+C in parallel.
 
 **Approach:** C then B — validate LLM signal quality first (decision harness + historical replay), then build on Freqtrade infrastructure.
 
 **Phases:**
-1. **Decision Harness (BUILT)** — `llm_local/` package: harness, data fetcher, replay engine, analysis. Replay 30 days of BTC/USDT 15m candles through Gemma4-26B with full TA indicators, measure signal quality. 92 tests.
+1. **Decision Harness (BUILT)** — `llm_local/` package: harness, data fetcher, replay engine, analysis. Replay 30 days of BTC/USDT 15m candles through Gemma4-26B with full TA indicators, measure signal quality. 103 tests.
 2. **Freqtrade Integration (Week 1)** — Pre-computed signal file approach (LLM runs separately, writes signals to disk, Freqtrade reads them).
 3. **Meta-Loop + Claude Opus (Weeks 2-3)** — Self-monitoring performance degradation, automatic strategy adjustment with rollback.
 4. **Live Trading (Week 4+)** — $50-100 real capital, hard-coded risk rules (25% max position, 5% daily drawdown, 15% total drawdown).
 
 ## Next Steps
 
-**Immediate (prompt iteration):**
-1. Implement `_build_v2()` in `llm_local/prompts.py` per `docs/phase-1-findings.md` §Proposed v2 Prompt Changes (fee injection, asymmetric bars, anti-panic, confidence calibration, default-hold bias). Add `"v2"` to `AVAILABLE_VERSIONS`.
-2. Add unit test in `tests/test_prompts.py` for v2 builder.
-3. Start llama.cpp server, then: `uv run python -m llm_local replay --quick --prompt-version v2` (~45 min).
-4. `uv run python -m llm_local analyze --compare` — check if win rate >40% and Pearson r >0.1.
-5. If v2 fails: `/office-hours` to reconsider (longer timeframe? different model? classification framing?).
+**Immediate (pick one path from `docs/phase-1-v2-results.md`):**
+- **A) Trending-slice replay** (~15 min) — needs `--start-candle` flag on `replay.py`. Proves strategy-regime hypothesis. If v2 shows edge on a trending window → just need regime detection.
+- **B) v3 regime-adaptive prompt** (~1h dev + 12 min replay) — detect regime (ADX / SMA slope), switch between breakout and mean-reversion rules.
+- **C) Full 2,880-candle replay** (~3h, no code change) — chop averages out across 30 days, gives real sample size for confidence calibration.
+- **D) `/office-hours`** — question fundamentals (15m timeframe? Gemma4? LLM-as-trader vs LLM-as-setup-picker?).
+- **Recommended:** A + C in parallel. A isolates strategy-regime variable cheaply; C produces statistically real sample.
 
 **After signal validated:**
-6. Phase 2: Freqtrade integration via pre-computed signal files
-7. Phase 3: Meta-loop with Claude Opus for self-monitoring strategy adjustment
-8. Phase 4: Live trading with $50-100 real capital
+1. Phase 2: Freqtrade integration via pre-computed signal files
+2. Phase 3: Meta-loop with Claude Opus for self-monitoring strategy adjustment
+3. Phase 4: Live trading with $50-100 real capital
 
 ## Skill routing
 
