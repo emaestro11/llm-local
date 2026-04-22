@@ -94,16 +94,21 @@ Exchange integration via `ccxt` (Binance testnet for paper trading, live later).
 - `docs/design.md` — Approved design doc from /office-hours (problem statement, premises, approach, all 4 phases)
 - `docs/architecture-decisions.md` — 12 architecture decisions from /plan-eng-review with rationale, outside voice findings, operational learnings, and next steps
 - `docs/phase-1-findings.md` — **Run #2 investigation (2026-04-16):** v1 prompt produces noise (win rate 18.2%, Pearson r −0.067). Root cause: overtrading, panic-sells. Contains proposed v2 prompt changes.
-- `docs/phase-1-v2-results.md` — **Run #4 v2 replay (2026-04-17):** v2 disciplined but edgeless on 50h choppy window. 0 fallbacks (vs 5), calibrated hold conf 0.22, rule-following exits. Verdict: prompt mechanism works, strategy-market fit is the remaining problem. Contains 4 paths forward (A/B/C/D). **Read before picking next direction.**
+- `docs/phase-1-v2-results.md` — **Run #4 v2 replay (2026-04-17):** v2 disciplined but edgeless on 50h choppy window. 0 fallbacks (vs 5), calibrated hold conf 0.22, rule-following exits. Verdict: prompt mechanism works, strategy-market fit is the remaining problem. Contains 4 paths forward (A/B/C/D).
+- `docs/phase-2-new-listing-plan.md` — **/office-hours session 2026-04-21:** pivoted from BTC 15m prompt iteration to new-listing scalping (deterministic shorts + LLM qualifier). Contains edge hypothesis, chosen approach, adversarial-review findings, and 5 must-fix blockers before implementation. **Read before coding Phase 2.**
+- Full design doc: `~/.gstack/projects/emaestro11-llm-local/esteban-main-design-20260421-221849.md` (with all 19 reviewer concerns listed).
 
-## Current Status (2026-04-17)
+## Current Status (2026-04-21)
 
 - Phase 1 infrastructure: BUILT, tested, runs end-to-end (103 tests)
 - Run #2 (v1, 200 candles): **FAIL** — 18.2% WR, Pearson r −0.067, 5 fallbacks
-- Run #4 (v2, 200 candles): **DISCIPLINED BUT EDGELESS** — 20.0% WR, −1.52% total, 0 fallbacks, avg hold conf 0.22 (calibrated). Strategy-regime mismatch on choppy window (15 SMA96 crosses, 0.215% per-candle vol).
-- Infra fix: `chat_template_kwargs.enable_thinking=False` in harness killed Gemma4 reasoning-eats-tokens fallbacks. Replay 13x faster (~12 min for 200 candles).
-- Dashboard: `uv run python -m llm_local.dashboard` → http://localhost:8090 (title: "LLM Local Trader")
-- Next session pick-up: **pick a path from `docs/phase-1-v2-results.md`** (A: trending slice test; B: v3 regime-adaptive; C: full 2,880-candle replay; D: /office-hours). Recommended A+C in parallel.
+- Run #4 (v2, 200 candles): **DISCIPLINED BUT EDGELESS** — 20.0% WR, −1.52% total, 0 fallbacks, avg hold conf 0.22 (calibrated). Strategy-regime mismatch on choppy BTC 15m window.
+- Infra fix: `chat_template_kwargs.enable_thinking=False` in harness killed Gemma4 reasoning-eats-tokens fallbacks.
+- Dashboard: `uv run python -m llm_local.dashboard` → http://localhost:8090
+- **Strategic pivot (2026-04-21, via /office-hours):** path D chosen. Moving from "polish another BTC 15m prompt" to **new-listing scalping**. Edge hypothesis: Binance listing FOMO pump + retail-trap reversal in first 60 min. Edge is arbitrage-resistant because sellers ARE the smart money (VC exit liquidity). Landscape-confirmed (70% dump rate, 2025–2026 sources).
+- Chosen approach: **deterministic shorts + LLM qualifier** (LLM classifies setup, code handles entry/exit/sizing). Kill criterion: 30 qualified trades, short WR > 55%, Pearson r > 0.1.
+- **Status: DRAFT design, NEEDS_FIX.** Adversarial review found 5 must-fix blockers (schema/analysis.py not reusable as-is for shorts; 1m history depth unverified; listings registry source unverified; exit rule math has peak-vs-entry asymmetry; futures-vs-spot listing timing gap may block live path).
+- Next session pick-up: **execute the 3 pre-code spikes from `docs/phase-2-new-listing-plan.md`** (ccxt 1m history for 5 listings; listings-source viability; manual TradingView inspection of 5 listings). Only code if pattern present on ≥3 of 5 charts AND data is fetchable.
 
 **Approach:** C then B — validate LLM signal quality first (decision harness + historical replay), then build on Freqtrade infrastructure.
 
