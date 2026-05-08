@@ -1,8 +1,9 @@
 # Phase 2 Plan — New-Listing Scalper (Deterministic + LLM Qualifier)
 
-Date: 2026-04-21
-Status: **DRAFT — needs revision after adversarial review (see Open Blockers below)**
+Date: 2026-04-21 (updated 2026-05-08 after `/plan-eng-review`)
+Status: **ENG CLEARED — ready to execute pre-code spikes (Phase 0), then implement.**
 Full design doc: `~/.gstack/projects/emaestro11-llm-local/esteban-main-design-20260421-221849.md`
+Test plan: `~/.gstack/projects/emaestro11-llm-local/esteban-main-eng-review-test-plan-20260508-162207.md`
 
 ## Decision from /office-hours (2026-04-21)
 
@@ -24,65 +25,73 @@ Chose path D (question the fundamentals) from `docs/phase-1-v2-results.md`. Ran 
 Split execution (deterministic code) from classification (LLM).
 
 - **LLM job:** binary qualifier before entry. Output `{qualify, confidence, reasoning}`.
-- **Deterministic entry:** minute 15 of listing, if `current/listing > 1.30` AND volume declining, AND LLM qualified with confidence > 0.6 → short 0.5% of account.
-- **Deterministic exit:** 40% retrace target OR minute 75 time stop OR 10% adverse stop.
+- **Deterministic entry:** minute 15 of listing, if `current/listing > 1.30` AND volume declining (`sum(vol[10:15]) < sum(vol[5:10])`), AND LLM qualified with confidence > 0.6 → short fixed-notional ($5 paper/live, fractional 0.5% for backtest math).
+- **Deterministic exit (priority order, locked):** TP `current < entry * (1 - target_drop_pct)` (calibrated from The Assignment) > adverse stop (calibrated from observed 5m candle range, NOT flat 10%) > time stop at minute 75. Slippage 0.3% per side in PnL.
 - Grounded in v2's lesson: LLMs can follow rules, are mediocre at execution. Use them for what they're good at (pattern classification) and hand execution to code.
 
-## Adversarial Review Results (2026-04-21)
+## Adversarial Review Results (2026-04-21) — RESOLVED via `/plan-eng-review` (2026-05-08)
 
-Design doc was reviewed cold by an independent subagent that also cross-checked the repo code. **Quality score 5/10. Verdict: NEEDS_FIX.**
+Original adversarial review: 5/10, NEEDS_FIX, 19 findings (5 must-fix + 11 should-fix). All 5 must-fix items now have locked resolutions.
 
-### Must-fix blockers before implementation
+### Must-fix resolutions
 
-1. **"Reuse existing code" is overstated.**
-   - `Decision` schema has no `side`, `symbol`, or `listing_id`.
-   - `analysis._reconstruct_trades` pairs `buy→sell` only; drops short trades on the floor.
-   - `harness.DECISION_JSON_SCHEMA` hardcoded to `{action,size_pct,confidence,reasoning}` with enum `buy/sell/hold` — not compatible with qualifier schema.
-   - **Action:** either add side-aware columns + refactor `analysis.py` + parameterize the harness schema, OR create new `ListingTrade` model + new `qualify_setup()` function. Stop claiming "reuse as-is."
+| # | Issue | Locked decision |
+|---|---|---|
+| 1 | Schema reuse overstated (Decision long-only) | **1A:** new `ListingTrade` ORM table parallel to `Decision`; long-only Phase 1 untouched |
+| 1 | Harness JSON schema hardcoded | **2A:** new `qualify_setup()` function alongside `make_decision`, sharing private `_call_llm()` helper |
+| 2 | 1m history depth unverified | **4A:** Phase 0 ccxt spike on 5 recent listings — BLOCKING gate before Lane A |
+| 3 | Listings source hand-waved | **4A:** Phase 0 source spike (15 min) — BLOCKING gate before Lane A |
+| 4 | Exit-rule peak-vs-entry asymmetry | **3A:** entry-relative exit — `current < entry * (1 - target_drop_pct)`, calibrated from The Assignment |
+| 5 | Futures-vs-spot timing gap | **7A:** Phase 0 timing verification on last 20 listings; live may scope to perp-launches or margin shorts |
 
-2. **Binance 1m history depth is a go/no-go blocker.**
-   - Binance public klines has a rolling ~30 day floor for 1m bars on many symbols.
-   - **Action:** before any code, spike `ccxt.fetch_ohlcv(symbol, '1m', since=listing_ts, limit=240)` against 5 recent listings. If it fails, switch to 5m.
+### Architecture decisions locked (`/plan-eng-review` 2026-05-08)
 
-3. **Listings registry source is hand-waved.**
-   - "Community-maintained JSON list" unverified; Binance announcement HTML format changes.
-   - **Action:** 15-min spike to verify a listings source before committing.
+| ID | Decision | Why |
+|---|---|---|
+| **1A** | New `ListingTrade` table | Parallel to `Decision`; preserves long-only Phase 1; 0 regression risk to 103 tests |
+| **2A** | New `qualify_setup()` function | Explicit > clever; doesn't break `make_decision`; testable in isolation |
+| **3A** | Entry-relative exit math | PnL matches what the rule says |
+| **4A** | Phase 0 spikes BLOCKING | 30 min of verification beats 2 days of code on a bad assumption |
+| **5A** | Raw OHLCV + derived features in qualifier prompt | NO RSI/MACD/BB on listing data — insufficient warmup makes them noise |
+| **6A** | Adverse stop calibrated from The Assignment | 10% flat fires on legitimate first-hour vol; widen using observed 5m candle range |
+| **7A** | Live execution scoped after timing verification | Backtest on spot; live may be perp or margin |
 
-4. **Exit rule 1 math is wrong.**
-   - "40% retrace from peak" is asymmetric: if peak occurred before minute-15 entry, price has to fall 40% from peak but short only profits on drop from entry.
-   - **Action:** rewrite in terms of entry price (e.g., close at `entry * 0.80`) OR explicitly compute expected PnL given peak-to-entry gap from historical data.
+### Code Quality fixes (mechanical, no decisions needed)
 
-5. **Futures-vs-spot listing timing gap.**
-   - New spot listings rarely have perpetual futures available on day 1 (hours to weeks later).
-   - **Action:** verify futures listing timing for last 10 spot listings. If typical gap > 2h, live strategy needs reframing (backtest on spot is still fine).
+- Listings analysis skips Sharpe (N=30 meaningless); reports WR + Pearson r + avg return
+- New `ListingPosition` class is short-aware from the start; `SimulatedPosition` untouched
+- Backtest fractional sizing; paper/live fixed $5 notional, ≤20 trades per $100 account
+- Slippage 0.3% per side flat in listings PnL
+- `should_exit` rule priority: TP > adverse-stop > time-stop (whipsaw tiebreaker)
 
-### Should-fix (tightening, can be done inline during implementation)
+### Should-fix items folded into locked decisions
 
-- Entry trigger ambiguity — define exact minute-index ranges.
-- `peak_price` formal definition.
-- Kill criterion denominator — 30 qualified trades vs 30 listings sampled.
-- Pearson r > 0.1 on ~21 trades is statistically meaningless (state as descriptive-only or raise sample).
-- Add slippage model (~0.3% per side flat).
-- Define "listing price" unambiguously (close of minute 1).
-- BTC daily trend computation unspecified.
-- Rename `event_replay.py` → `listings_replay.py` (YAGNI on the generalization).
-- Make The Assignment (manual 5-listing inspection) a BLOCKING gate before Lane A.
-- 10% adverse stop too tight for first-hour listing vol (ATR-based or widen).
-- Reset circuit breaker between listings in the event loop.
+#1 entry trigger ranges, #2 peak_price formalization, #3/#4 kill-criterion denominator + Pearson sample-size note, #5 slippage, #10 listing price = close of minute 1, #11 BTC regime = close vs SMA(50d), #12 module rename to `listings_replay.py`, #13 Assignment as blocking gate, #17 adverse stop calibration, #19 circuit-breaker reset per listing — all captured in the test plan or the locked decisions above.
 
-## Immediate Next Steps
+## Immediate Next Steps (Phase 0 — BLOCKING gates)
 
-Before writing any code:
+All four must pass before Lane A. ~75 min total.
 
-1. **Spike blockers #2 and #3** in parallel (~30 min total):
-   - `ccxt.fetch_ohlcv` for 5 recent Binance listings at 1m — does history go back to listing_ts?
-   - Find a listings source: check `github.com/search?q=binance+listing+alert`, verify JSON format, license. Or parse Binance announcements API.
-2. **Do The Assignment manually** (~30 min):
-   - Pull TradingView charts for 5 recent Binance listings (1m, first 4 hours).
-   - For each: listing price, peak, time of peak, did it reverse at the 15–30 min mark, what would a short have paid.
-   - If pattern isn't visibly present on ≥3 of 5, **kill this direction before coding**.
-3. **Revise the design doc to address must-fix items #1, #4, #5.** Rewrite "reuse" claims honestly; fix exit-rule math; reframe live path given futures-vs-spot gap.
-4. **Only then:** proceed to Lane A (data) → Lane B (strategy + qualifier) → Lane C (listings_replay.py).
+1. **The Assignment** (~30 min, manual):
+   - 5 recent Binance listings on TradingView 1m, first 4 hours each.
+   - Record: listing price, peak, time of peak, was there a 15–30 min reversal, what would a short have paid (%), what's the typical 5m candle range.
+   - **Pattern visible on <3 of 5 → KILL the direction.**
+   - **Pattern visible on ≥3 of 5 → derive `target_drop_pct` and adverse-stop range; feed into design doc.**
+
+2. **ccxt 1m history depth spike** (~10 min):
+   - `ccxt.fetch_ohlcv(symbol, '1m', since=listing_ts, limit=240)` against 5 recent listings.
+   - Any return <240 candles or zeros → switch to 5m, document.
+
+3. **Listings registry source spike** (~15 min):
+   - Vet a community registry OR Binance announcements API endpoint.
+   - Verify JSON format, license, freshness.
+   - No code commits until source is decided.
+
+4. **Perp-listing timing spike** (~10 min):
+   - Last 20 spot listings: how many had perps within first hour?
+   - <50% → live strategy targets perp-launches OR Binance Margin shorts; document.
+
+If all four pass: proceed to Lane A. Lanes B and C run in parallel after A. Lane D waits for both.
 
 ## If the Experiment Fails
 
